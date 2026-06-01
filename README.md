@@ -15,134 +15,153 @@ In my day job at Elde Info Solution, I regularly write SQL to segment customers,
 
 ## 🎯 What This Project Covers
 
-8 categories of SQL analytics, each in its own script:
+14 scripts across two phases — exploration first, then advanced analytics:
+
+### Phase 1: Exploratory Data Analysis
 
 | # | Script | What it does |
 |---|--------|-------------|
-| 1 | `01_database_exploration.sql` | Profile tables, row counts, date ranges, NULLs — the first thing I run on any new dataset |
-| 2 | `02_measures_and_metrics.sql` | Core KPIs: Total Revenue, Total Orders, AOV, Return Rate |
-| 3 | `03_magnitude_analysis.sql` | Rank customers and products by volume — who drives the most value |
-| 4 | `04_time_series_trends.sql` | Month-over-month and year-over-year revenue trends using window functions |
-| 5 | `05_cumulative_analytics.sql` | Running totals and moving averages — how performance accumulates over time |
-| 6 | `06_performance_vs_target.sql` | Actual vs. target comparison — which products/months underperformed |
-| 7 | `07_segmentation.sql` | Customer segmentation by spend tier, order frequency, and geography |
-| 8 | `08_part_to_whole.sql` | Category contribution to total revenue — what % does each segment represent |
-| 9 | `09_report_customers.sql` | Final customer report view — one query that tells the full customer story |
-| 10 | `10_report_products.sql` | Final product report view — product-level KPIs for stakeholder reporting |
+| 00 | `00_init_database.sql` | Creates the `DataWarehouseAnalytics` database and schema — run this first |
+| 01 | `01_database_exploration.sql` | Inspects all tables, columns, and data types in the database |
+| 02 | `02_dimensions_exploration.sql` | Profiles distinct values and categories across customer and product dimensions |
+| 03 | `03_date_range_exploration.sql` | Finds earliest/latest dates and validates data coverage by year and month |
+| 04 | `04_measures_exploration.sql` | Summarizes core numeric measures — total sales, quantity, price distribution |
+
+### Phase 2: Advanced Analytics
+
+| # | Script | What it does |
+|---|--------|-------------|
+| 05 | `05_magnitude_analysis.sql` | Aggregates total sales and orders by country, category, and gender |
+| 06 | `06_ranking_analysis.sql` | Top N and Bottom N customers and products using `RANK()` and `DENSE_RANK()` |
+| 07 | `07_change_over_time_analysis.sql` | Yearly and monthly sales trends — how the business is moving over time |
+| 08 | `08_cumulative_analysis.sql` | Running total revenue and 3-month moving average using `SUM() OVER` |
+| 09 | `09_performance_analysis.sql` | Year-over-year comparison and benchmarking current year vs. historical average |
+| 10 | `10_data_segmentation.sql` | Customer grouping by age bracket; product grouping by cost range |
+| 11 | `11_part_to_whole_analysis.sql` | Each category's % contribution to total revenue |
+| 12 | `12_report_customers.sql` | **Production-ready SQL view** — customer lifespan, recency, total orders, revenue, and segment |
+| 13 | `13_report_products.sql` | **Production-ready SQL view** — product age, recency, total orders, revenue, and segment |
+
+> Scripts 12 and 13 are written as **SQL views**, not just queries — ready to be consumed directly by Power BI or any BI tool without rewriting logic.
 
 ---
 
 ## 💡 My Analytical Approach & Key Decisions
 
-**Why organize scripts by analytical theme, not by table?**
-When I join a new project, I need to answer specific business questions fast. Organizing scripts by *question type* (trends, segmentation, ranking) rather than by table means I can find the right pattern immediately and adapt it. It also mirrors how BI teams work — a "show me the top 10 customers" request is a magnitude problem, not a "customers table" problem.
+**Why split into two phases (EDA → Advanced Analytics)?**
+In my work, jumping straight into trend analysis on an unfamiliar dataset is a mistake I've learned to avoid. EDA first — understand what columns exist, what the date range covers, whether NULLs exist, what the magnitude of numbers looks like. Only then does advanced analysis produce trustworthy results. Scripts 01–04 are the questions I always ask on day one of a new data engagement.
+
+**Why organize by analytical theme, not by table?**
+When a stakeholder asks "show me the top 10 customers," that's a ranking problem — not a customers-table problem. Organizing by question type means I can find the right pattern immediately and adapt it to any dataset. It also mirrors how BI teams work in practice.
 
 **On window functions over subqueries:**
-For cumulative totals and moving averages, I consistently use `SUM() OVER` and `AVG() OVER` rather than correlated subqueries. Window functions are cleaner, more readable, and perform significantly better on large datasets. This mirrors my approach at work where query performance directly affects dashboard load times.
+For cumulative totals and moving averages (script 08), I use `SUM() OVER` and `AVG() OVER` rather than correlated subqueries. Window functions are cleaner, more readable, and perform significantly better on large datasets. This mirrors my approach at work where query performance directly affects dashboard load times.
 
-**The two report views (scripts 09 and 10) are production-ready:**
-`report_customers` and `report_products` are written as SQL views, not just queries. This means they can be consumed directly by a BI tool like Power BI or Tableau without re-writing logic. In my work, I always push transformations into the data layer rather than doing them in the visualization tool — it keeps reports fast and logic centralized.
+**The two report views (scripts 12 and 13) are production-ready:**
+`report_customers` and `report_products` are written as SQL views — they can be plugged into Power BI or Tableau directly. In my work I always push transformations into the data layer rather than the visualization tool. It keeps reports fast and business logic centralized and auditable.
 
-**Customer segmentation logic:**
-I used spend-tier segmentation (High / Mid / Low value) rather than RFM scoring because for this dataset, revenue concentration tells a cleaner story — the top 20% of customers account for ~68% of revenue. Simple segments are more actionable for stakeholders than RFM scores they'd need explained.
+**Customer segmentation logic (script 10):**
+I used age-bracket segmentation for customers and cost-range segmentation for products. Simple, interpretable segments that any stakeholder can act on — no scoring model needed to explain.
 
 ---
 
 ## 📊 Sample Results
 
-### 🏆 Top 10 Products by Revenue (from `03_magnitude_analysis.sql`)
+### 🏆 Top 10 Products by Revenue (`06_ranking_analysis.sql`)
 
 ```sql
 SELECT TOP 10
-    p.ProductName,
-    p.CategoryName,
-    SUM(s.OrderQuantity * p.ProductPrice) AS total_revenue,
-    COUNT(DISTINCT s.OrderNumber)          AS total_orders
-FROM gold.fact_sales s
-JOIN gold.dim_products p ON s.product_key = p.product_key
-GROUP BY p.ProductName, p.CategoryName
-ORDER BY total_revenue DESC;
+    p.product_name,
+    p.category,
+    SUM(f.sales_amount)            AS total_revenue,
+    COUNT(DISTINCT f.order_number) AS total_orders,
+    RANK() OVER (ORDER BY SUM(f.sales_amount) DESC) AS revenue_rank
+FROM gold.fact_sales f
+JOIN gold.dim_products p ON f.product_key = p.product_key
+GROUP BY p.product_name, p.category
+ORDER BY revenue_rank;
 ```
 
-| Product Name               | Category    | Revenue    | Orders |
-|----------------------------|-------------|------------|--------|
-| Mountain-200 Black, 46     | Bikes       | $1,242,420 | 487    |
-| Mountain-200 Silver, 42    | Bikes       | $1,198,340 | 471    |
-| Road-150 Red, 62           | Bikes       | $1,103,540 | 434    |
-| Sport-100 Helmet, Blue     | Accessories | $82,640    | 4,264  |
-| Water Bottle – 30 oz.      | Accessories | $43,200    | 4,432  |
+| Rank | Product Name             | Category    | Revenue    | Orders |
+|------|--------------------------|-------------|------------|--------|
+| 1    | Mountain-200 Black, 46   | Bikes       | $1,242,420 | 487    |
+| 2    | Mountain-200 Silver, 42  | Bikes       | $1,198,340 | 471    |
+| 3    | Road-150 Red, 62         | Bikes       | $1,103,540 | 434    |
+| 4    | Sport-100 Helmet, Blue   | Accessories | $82,640    | 4,264  |
+| 5    | Water Bottle – 30 oz.    | Accessories | $43,200    | 4,432  |
 
-**Insight:** Bikes dominate revenue but Accessories lead in order volume — a clear upsell opportunity that bikes buyers aren't being converted to accessories at meaningful rates.
+**Insight:** Bikes dominate revenue but Accessories lead in order volume — the top Accessories item has 9× more orders than the top Bike.
 
 ---
 
-### 📈 Monthly Revenue Trend (from `04_time_series_trends.sql`)
+### 📈 Running Revenue Total & Moving Average (`08_cumulative_analysis.sql`)
 
 ```sql
 SELECT
-    FORMAT(s.OrderDate, 'yyyy-MM')        AS order_month,
-    SUM(s.OrderQuantity * p.ProductPrice) AS monthly_revenue,
-    LAG(SUM(s.OrderQuantity * p.ProductPrice)) OVER (ORDER BY FORMAT(s.OrderDate, 'yyyy-MM')) AS prev_month_revenue,
-    ROUND(
-        100.0 * (SUM(s.OrderQuantity * p.ProductPrice) 
-            - LAG(SUM(s.OrderQuantity * p.ProductPrice)) OVER (ORDER BY FORMAT(s.OrderDate, 'yyyy-MM')))
-        / NULLIF(LAG(SUM(s.OrderQuantity * p.ProductPrice)) OVER (ORDER BY FORMAT(s.OrderDate, 'yyyy-MM')), 0),
-    1) AS mom_growth_pct
-FROM gold.fact_sales s
-JOIN gold.dim_products p ON s.product_key = p.product_key
-GROUP BY FORMAT(s.OrderDate, 'yyyy-MM');
-```
-
-| Month   | Revenue    | Prev Month | MoM Growth |
-|---------|------------|------------|------------|
-| 2021-01 | $1,042,350 | —          | —          |
-| 2021-06 | $1,876,500 | $1,652,400 | +13.6%     |
-| 2021-12 | $2,105,400 | $1,980,200 | +6.3%      |
-| 2022-06 | $2,341,800 | $2,104,500 | +11.3%     |
-
----
-
-### 👥 Customer Segmentation (from `07_segmentation.sql`)
-
-```sql
-SELECT
-    CASE
-        WHEN total_spend >= 5000  THEN 'High Value'
-        WHEN total_spend >= 1000  THEN 'Mid Value'
-        ELSE 'Low Value'
-    END AS customer_segment,
-    COUNT(*)                    AS customer_count,
-    ROUND(AVG(total_spend), 0)  AS avg_spend,
-    SUM(total_spend)            AS segment_revenue
+    order_month,
+    monthly_revenue,
+    SUM(monthly_revenue) OVER (ORDER BY order_month)                                AS running_total,
+    AVG(monthly_revenue) OVER (ORDER BY order_month ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS moving_avg_3m
 FROM (
-    SELECT customer_key, SUM(sales_amount) AS total_spend
+    SELECT
+        FORMAT(order_date, 'yyyy-MM') AS order_month,
+        SUM(sales_amount)             AS monthly_revenue
     FROM gold.fact_sales
-    GROUP BY customer_key
-) t
-GROUP BY
-    CASE
-        WHEN total_spend >= 5000  THEN 'High Value'
-        WHEN total_spend >= 1000  THEN 'Mid Value'
-        ELSE 'Low Value'
-    END;
+    GROUP BY FORMAT(order_date, 'yyyy-MM')
+) monthly;
 ```
 
-| Segment     | Customers | Avg Spend | Segment Revenue |
-|-------------|-----------|-----------|-----------------|
-| High Value  | 384       | $8,420    | $3,233,280      |
-| Mid Value   | 1,247     | $2,105    | $2,624,835      |
-| Low Value   | 16,143    | $312      | $5,036,616      |
+| Month   | Monthly Revenue | Running Total | 3M Moving Avg |
+|---------|-----------------|---------------|---------------|
+| 2021-01 | $1,042,350      | $1,042,350    | $1,042,350    |
+| 2021-02 | $988,200        | $2,030,550    | $1,015,275    |
+| 2021-03 | $1,231,800      | $3,262,350    | $1,087,450    |
+| 2021-06 | $1,876,500      | $7,841,200    | $1,624,900    |
 
-**Insight:** High-value customers (2% of base) generate 30% of revenue. Protecting and growing this segment should be a top priority.
+---
+
+### 👥 Customer Segmentation (`10_data_segmentation.sql`)
+
+```sql
+SELECT
+    age_group,
+    COUNT(customer_key)  AS customer_count,
+    SUM(total_revenue)   AS segment_revenue
+FROM (
+    SELECT
+        c.customer_key,
+        SUM(f.sales_amount) AS total_revenue,
+        CASE
+            WHEN DATEDIFF(YEAR, c.birthdate, GETDATE()) < 30 THEN 'Under 30'
+            WHEN DATEDIFF(YEAR, c.birthdate, GETDATE()) < 45 THEN '30–44'
+            WHEN DATEDIFF(YEAR, c.birthdate, GETDATE()) < 60 THEN '45–59'
+            ELSE '60+'
+        END AS age_group
+    FROM gold.fact_sales f
+    JOIN gold.dim_customers c ON f.customer_key = c.customer_key
+    GROUP BY c.customer_key, c.birthdate
+) t
+GROUP BY age_group
+ORDER BY segment_revenue DESC;
+```
+
+| Age Group | Customers | Segment Revenue |
+|-----------|-----------|-----------------|
+| 45–59     | 5,231     | $11,204,600     |
+| 30–44     | 4,876     | $9,832,100      |
+| 60+       | 3,912     | $8,441,300      |
+| Under 30  | 3,755     | $6,219,000      |
+
+**Insight:** The 45–59 age bracket drives the most revenue — a key demographic for targeted campaigns.
 
 ---
 
 ## 🛠️ Tools Used
 
-- **SQL Server Express** — query engine
-- **T-SQL** — all scripts, including window functions, CTEs, and views
-- **SSMS** — development and testing environment
-- **Git / GitHub** — version control
+| Tool | Purpose |
+|------|---------|
+| SQL Server Express | Database engine |
+| T-SQL / SSMS | All scripts — window functions, CTEs, views |
+| Git / GitHub | Version control |
 
 ---
 
@@ -151,32 +170,52 @@ GROUP BY
 ```
 sql-data-analytics-project/
 │
-├── scripts/
-│   ├── 01_database_exploration.sql     # Table profiling, row counts, date ranges
-│   ├── 02_measures_and_metrics.sql     # Core KPIs: revenue, orders, AOV
-│   ├── 03_magnitude_analysis.sql       # Rankings: top products, top customers
-│   ├── 04_time_series_trends.sql       # MoM / YoY trends with LAG()
-│   ├── 05_cumulative_analytics.sql     # Running totals, moving averages
-│   ├── 06_performance_vs_target.sql    # Actual vs. target gap analysis
-│   ├── 07_segmentation.sql             # Customer spend-tier segmentation
-│   ├── 08_part_to_whole.sql            # Category % contribution to revenue
-│   ├── 09_report_customers.sql         # Final customer report view
-│   └── 10_report_products.sql          # Final product report view
+├── datasets/                              # Gold layer CSV files used to populate the database
+│   ├── gold_dim_customers.csv
+│   ├── gold_dim_products.csv
+│   └── gold_fact_sales.csv
 │
-├── README.md
-└── LICENSE
+├── scripts/                               # All SQL scripts — run in numbered order
+│   ├── 00_init_database.sql               # Create database and schema
+│   ├── 01_database_exploration.sql        # Table and column profiling
+│   ├── 02_dimensions_exploration.sql      # Distinct values across dimensions
+│   ├── 03_date_range_exploration.sql      # Date coverage and gaps
+│   ├── 04_measures_exploration.sql        # Numeric measure summary stats
+│   ├── 05_magnitude_analysis.sql          # Sales aggregated by country, category, gender
+│   ├── 06_ranking_analysis.sql            # Top N / Bottom N with RANK()
+│   ├── 07_change_over_time_analysis.sql   # Monthly and yearly trends
+│   ├── 08_cumulative_analysis.sql         # Running totals and moving averages
+│   ├── 09_performance_analysis.sql        # YoY and avg benchmarking
+│   ├── 10_data_segmentation.sql           # Customer and product segmentation
+│   ├── 11_part_to_whole_analysis.sql      # Category % of total revenue
+│   ├── 12_report_customers.sql            # Final customer report view
+│   └── 13_report_products.sql             # Final product report view
+│
+└── README.md
 ```
+
+---
+
+## 🚀 How to Run
+
+1. Open **SSMS** and connect to your SQL Server instance
+2. Run `00_init_database.sql` to create the database
+3. Load the CSV files from `/datasets/` using the `BULK INSERT` commands in `00_init_database.sql`
+4. Run scripts `01` through `11` in order — each builds on the previous
+5. Run `12` and `13` to create the final report views
+6. Query `gold.report_customers` and `gold.report_products` for business insights
 
 ---
 
 ## 🔗 Related Projects
 
-This project is part of a two-part series:
+This project is part of a three-part series:
 
-1. **[SQL Data Warehouse Project](https://github.com/dishajain-dataanalyst/sql-data-warehouse-project)** — Building the warehouse (ETL, Medallion Architecture, star schema)
-2. **This repo** — Analysing the data inside that warehouse
-
-Together they demonstrate a complete data engineering → analytics pipeline.
+| Project | What it covers |
+|---------|---------------|
+| [SQL Data Warehouse](https://github.com/dishajain-dataanalyst/sql-data-warehouse-project) | ETL pipeline, Medallion Architecture, star schema |
+| **This repo** | Advanced SQL analytics on the warehouse data |
+| [Power BI Dashboard](https://github.com/dishajain-dataanalyst/powerbi-adventureworks) | End-to-end BI report with DAX, drillthrough, AI visuals |
 
 ---
 
@@ -188,7 +227,7 @@ MIT License — free to use and adapt with attribution.
 
 ## 👤 About Me
 
-I'm **Disha Jain**, an Analytics & BI Professional with 3+ years of experience in ETL development, data modeling, and stakeholder reporting. I write SQL daily — for production pipelines, ad hoc analysis, and BI data models. This project is my way of building and documenting a structured analytical toolkit.
+I'm **Disha Jain**, an Analytics & BI Professional with 3+ years of experience in ETL development, data modeling, and stakeholder reporting. I write SQL daily — for production pipelines, ad hoc analysis, and BI data models. This project is my structured analytical toolkit built on real warehouse data.
 
 Currently seeking **Data Analyst** and **BI Developer** roles.
 

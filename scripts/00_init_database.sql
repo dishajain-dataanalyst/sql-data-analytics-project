@@ -1,7 +1,7 @@
 /*
 =============================================================
 Create Database and Schemas
-=============================================================
+============================================================= 
 Script Purpose:
     This script creates a new database named 'DataWarehouseAnalytics' after checking if it already exists. 
     If the database exists, it is dropped and recreated. Additionally, this script creates a schema called gold
